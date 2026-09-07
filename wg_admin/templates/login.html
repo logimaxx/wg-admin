@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth">
+  <div class="panel auth-card">
+    <p class="eyebrow">WireGuard control</p>
+    <h1>Sign in</h1>
+    <p class="lede">This UI manages the WireGuard configs already on this host. It does not create a new VPN.</p>
+    <form method="post" action="/login" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>
+        <span>Admin password</span>
+        <input type="password" name="password" autocomplete="current-password" required autofocus>
+      </label>
+      <button class="btn btn-primary" type="submit">Continue</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

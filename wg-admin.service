@@ -1,0 +1,14 @@
+[Unit]
+Description=WireGuard admin web UI
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/wg-admin.env
+WorkingDirectory=/opt/wg-admin
+ExecStart=/opt/wg-admin/venv/bin/wg-admin
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

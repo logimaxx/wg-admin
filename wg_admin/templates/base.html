@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if title %}{{ title }} · {% endif %}wg-admin</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">wg-admin</span>
+      </a>
+      <div class="top-meta">
+        {% if demo %}<span class="pill pill-demo">demo</span>{% endif %}
+        <span class="muted">v{{ version }}</span>
+        {% if request.session.get("auth") %}
+        <form method="post" action="/logout" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="linkish" type="submit">Sign out</button>
+        </form>
+        {% endif %}
+      </div>
+    </header>
+    <main class="main">
+      {% if error %}<div class="banner banner-bad" role="alert">{{ error }}</div>{% endif %}
+      {% if notice %}<div class="banner banner-ok">{{ notice }}</div>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

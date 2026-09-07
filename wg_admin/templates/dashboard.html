@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Host</p>
+    <h1>Interfaces</h1>
+    <p class="lede">Inherited from <code>{{ config_dir }}</code>. Changes are written back to those files and synced live when the interface is up.</p>
+  </div>
+</section>
+
+{% if not interfaces %}
+<div class="panel empty">
+  <h2>No WireGuard configs found</h2>
+  <p>Place a <code>wg0.conf</code> (or similar) in <code>{{ config_dir }}</code> and reload this page. Existing <code>PostUp</code> / routing lines are preserved.</p>
+</div>
+{% else %}
+<div class="cards">
+  {% for iface in interfaces %}
+  <a class="card iface-card" href="/interfaces/{{ iface.name }}">
+    <div class="card-top">
+      <span class="led {{ 'led-ok' if iface.up else 'led-off' }}"></span>
+      <strong class="iface-name">{{ iface.name }}</strong>
+      <span class="pill">{{ 'up' if iface.up else 'down' }}</span>
+    </div>
+    <dl class="facts">
+      <div><dt>Address</dt><dd>{{ iface.addresses }}</dd></div>
+      <div><dt>Listen</dt><dd>{{ iface.listen_port }}</dd></div>
+      <div><dt>Peers</dt><dd>{{ iface.peer_count }}</dd></div>
+      <div><dt>Handshake</dt><dd>{{ iface.last_handshake }}</dd></div>
+    </dl>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

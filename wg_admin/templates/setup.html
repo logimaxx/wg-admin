@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth">
+  <div class="panel auth-card">
+    <p class="eyebrow">First run</p>
+    <h1>Protect this console</h1>
+    <p class="lede">wg-admin found existing interface files and will manage them in place. Set an admin password to continue.</p>
+    {% if discovered %}
+    <ul class="found">
+      {% for name in discovered %}
+      <li><code>{{ name }}.conf</code> inherited</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No <code>*.conf</code> files yet. Add one under the WireGuard directory, then refresh.</p>
+    {% endif %}
+    <form method="post" action="/setup" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>
+        <span>Admin password</span>
+        <input type="password" name="password" autocomplete="new-password" minlength="8" required autofocus>
+      </label>
+      <label>
+        <span>Confirm password</span>
+        <input type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+      </label>
+      <button class="btn btn-primary" type="submit">Start managing</button>
+    </form>
+  </div>
+</section>
+{% endblock %}
