@@ -1,6 +1,50 @@
 (() => {
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+  const THEME_KEY = "wg-admin-theme";
+
+  function systemTheme() {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  function storedTheme() {
+    try {
+      const value = localStorage.getItem(THEME_KEY);
+      if (value === "light" || value === "dark") return value;
+    } catch {
+      /* private mode */
+    }
+    return null;
+  }
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  }
+  function syncThemeToggle() {
+    const button = $("[data-theme-toggle]");
+    if (!button) return;
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    const label = `Switch to ${next} mode`;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
+  }
+  function applyTheme(theme, persist) {
+    document.documentElement.setAttribute("data-theme", theme);
+    if (persist) {
+      try {
+        localStorage.setItem(THEME_KEY, theme);
+      } catch {
+        /* private mode */
+      }
+    }
+    syncThemeToggle();
+  }
+
+  applyTheme(storedTheme() || systemTheme(), false);
+  const media = window.matchMedia("(prefers-color-scheme: light)");
+  const onSystemTheme = () => {
+    if (!storedTheme()) applyTheme(systemTheme(), false);
+  };
+  if (media.addEventListener) media.addEventListener("change", onSystemTheme);
+  else media.addListener(onSystemTheme);
 
   function openModal(id) {
     const el = document.getElementById(id);
@@ -13,6 +57,11 @@
   }
 
   document.addEventListener("click", (event) => {
+    const themeToggle = event.target.closest("[data-theme-toggle]");
+    if (themeToggle) {
+      applyTheme(currentTheme() === "dark" ? "light" : "dark", true);
+      return;
+    }
     const open = event.target.closest("[data-open]");
     if (open) {
       openModal(open.dataset.open);
