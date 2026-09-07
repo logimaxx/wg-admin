@@ -45,16 +45,21 @@ def _run(args: list[str]) -> str:
     return result.stdout
 
 
-def load_runtime(demo: bool = False) -> Runtime:
-    if demo:
-        return Runtime(available=False, error="demo")
-    if shutil.which("wg") is None:
-        return Runtime(available=False, error="wg not found")
+def _dump_int(value: str) -> int:
+    if not value or value in {"off", "(none)"}:
+        return 0
     try:
-        dump = _run(["wg", "show", "all", "dump"])
-    except (OSError, subprocess.CalledProcessError) as exc:
-        return Runtime(available=False, error=str(exc))
+        return int(value)
+    except ValueError:
+        return 0
 
+
+def parse_wg_dump(dump: str, iface_is_up=_iface_is_up) -> Runtime:
+    """Parse `wg show all dump` (and single-iface `wg show dump`).
+
+    With `all`, every row is prefixed with the interface name, so peer rows
+    have 9 columns. Without it, peer rows have 8.
+    """
     runtime = Runtime(available=True)
     current: InterfaceRuntime | None = None
     for raw in dump.splitlines():
@@ -64,24 +69,42 @@ def load_runtime(demo: bool = False) -> Runtime:
             current = InterfaceRuntime(
                 name=name,
                 public_key=public_key,
-                listen_port=listen_port if listen_port != "0" else "",
-                up=_iface_is_up(name),
+                listen_port="" if listen_port in {"0", "off"} else listen_port,
+                up=iface_is_up(name),
             )
             runtime.interfaces[name] = current
             continue
-        if current is None or len(parts) < 8:
+        if len(parts) >= 9:
+            name, public_key, _psk, endpoint, allowed_ips, handshake, rx, tx, keepalive = parts[:9]
+            current = runtime.interfaces.get(name, current)
+        elif len(parts) >= 8:
+            public_key, _psk, endpoint, allowed_ips, handshake, rx, tx, keepalive = parts[:8]
+        else:
             continue
-        public_key, _psk, endpoint, allowed_ips, handshake, rx, tx, keepalive = parts[:8]
+        if current is None:
+            continue
         current.peers[public_key] = PeerRuntime(
             public_key=public_key,
-            endpoint="" if endpoint == "(none)" else endpoint,
-            allowed_ips=allowed_ips,
-            latest_handshake=int(handshake or 0),
-            transfer_rx=int(rx or 0),
-            transfer_tx=int(tx or 0),
-            persistent_keepalive=int(keepalive or 0),
+            endpoint="" if endpoint in {"", "(none)"} else endpoint,
+            allowed_ips="" if allowed_ips == "(none)" else allowed_ips,
+            latest_handshake=_dump_int(handshake),
+            transfer_rx=_dump_int(rx),
+            transfer_tx=_dump_int(tx),
+            persistent_keepalive=_dump_int(keepalive),
         )
     return runtime
+
+
+def load_runtime(demo: bool = False) -> Runtime:
+    if demo:
+        return Runtime(available=False, error="demo")
+    if shutil.which("wg") is None:
+        return Runtime(available=False, error="wg not found")
+    try:
+        dump = _run(["wg", "show", "all", "dump"])
+        return parse_wg_dump(dump)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return Runtime(available=False, error=str(exc))
 
 
 def syncconf(name: str, stripped: str) -> None:
