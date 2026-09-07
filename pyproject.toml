@@ -3,7 +3,18 @@ name = "wg-admin"
 version = "0.1.0"
 description = "Web UI to manage a running WireGuard instance without replacing its config."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
+authors = [
+    { name = "Sergiu Voicu", email = "contact@logimaxx.ro" },
+]
+maintainers = [
+    { name = "LogiMaxx Systems", email = "contact@logimaxx.ro" },
+]
+keywords = ["wireguard", "vpn", "admin", "peers"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -15,6 +26,13 @@ dependencies = [
     "pillow>=10.4.0",
     "cryptography>=43.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/logimaxx/wg-admin"
+Repository = "https://github.com/logimaxx/wg-admin"
+Issues = "https://github.com/logimaxx/wg-admin/issues"
+Company = "https://logimaxx.ro"
+Author = "https://github.com/vsergiu"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3.0", "httpx>=0.27.0"]

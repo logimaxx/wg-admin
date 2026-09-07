@@ -35,6 +35,7 @@ def test_setup_dashboard_add_peer(tmp_path, monkeypatch):
     setup = client.get("/setup")
     assert setup.status_code == 200
     assert "wg0.conf" in setup.text
+    assert "data-theme-toggle" in setup.text
 
     token = setup.text.split('name="csrf" value="')[1].split('"')[0]
     posted = client.post(
