@@ -38,6 +38,8 @@ def strip_runtime_config(config: WgConfig) -> str:
             continue
         lines.append(f"{key} = {value}")
     for peer in config.peers:
+        if peer.disabled:
+            continue
         lines.append("")
         lines.append("[Peer]")
         lines.append(f"PublicKey = {peer.public_key}")

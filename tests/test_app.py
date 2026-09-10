@@ -78,3 +78,64 @@ def test_setup_dashboard_add_peer(tmp_path, monkeypatch):
     qr = client.get(f"/interfaces/wg0/peers/{encode_peer_id(created.public_key)}/qr")
     assert qr.status_code == 200
     assert qr.headers["content-type"] == "image/png"
+    assert "created=" in (added.headers.get("location") or "")
+
+    disabled = client.post(
+        f"/interfaces/wg0/peers/{encode_peer_id(created.public_key)}/disable",
+        data={"csrf": token},
+        follow_redirects=False,
+    )
+    assert disabled.status_code == 303
+    cfg = parse_wg_config(tmp_path / "wg" / "wg0.conf")
+    assert cfg.peer_by_public_key(created.public_key).disabled
+
+    iface = client.get("/interfaces/wg0")
+    assert "disabled" in iface.text
+    assert "Filter by name" in iface.text
+    assert "Config backups" in iface.text
+    token = iface.text.split('name="csrf" value="')[1].split('"')[0]
+
+    existing = pubkey(genkey())
+    imported = client.post(
+        "/interfaces/wg0/peers",
+        data={
+            "csrf": token,
+            "peer_name": "phone",
+            "allowed_ips": "10.8.0.10/32",
+            "keepalive": "25",
+            "public_key": existing,
+        },
+        follow_redirects=False,
+    )
+    assert imported.status_code == 303
+    assert "created=" not in (imported.headers.get("location") or "")
+
+    account = client.get("/account")
+    assert account.status_code == 200
+    token = account.text.split('name="csrf" value="')[1].split('"')[0]
+    changed = client.post(
+        "/account",
+        data={
+            "csrf": token,
+            "current": "correct-horse",
+            "password": "new-password",
+            "confirm": "new-password",
+        },
+        follow_redirects=False,
+    )
+    assert changed.status_code == 303
+    client.post("/logout", data={"csrf": token}, follow_redirects=False)
+    login = client.get("/login")
+    token = login.text.split('name="csrf" value="')[1].split('"')[0]
+    denied = client.post(
+        "/login",
+        data={"password": "correct-horse", "csrf": token},
+        follow_redirects=False,
+    )
+    assert denied.status_code == 401
+    allowed = client.post(
+        "/login",
+        data={"password": "new-password", "csrf": token},
+        follow_redirects=False,
+    )
+    assert allowed.status_code == 303

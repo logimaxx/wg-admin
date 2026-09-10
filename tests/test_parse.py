@@ -63,3 +63,24 @@ def test_roundtrip_keeps_postup(tmp_path: Path):
     assert "Address" not in stripped
     assert "ListenPort = 51820" in stripped
     assert "PublicKey = " in stripped
+
+
+def test_disabled_peer_roundtrip_and_strip(tmp_path: Path):
+    path = tmp_path / "wg0.conf"
+    path.write_text(
+        FIXTURE.format(priv="A" * 43 + "=", pub1="B" * 43 + "=", pub2="C" * 43 + "=", psk="D" * 43 + "="),
+        encoding="utf-8",
+    )
+    cfg = parse_wg_config(path)
+    cfg.peers[0].disabled = True
+    path.write_text(render_wg_config(cfg), encoding="utf-8")
+    again = parse_wg_config(path)
+    assert again.peers[0].disabled
+    assert again.peers[0].name == "laptop"
+    assert again.peers[0].public_key == "B" * 43 + "="
+    assert again.peers[1].disabled is False
+    text = path.read_text(encoding="utf-8")
+    assert "wg-admin:disabled" in text
+    stripped = strip_runtime_config(again)
+    assert again.peers[0].public_key not in stripped
+    assert again.peers[1].public_key in stripped

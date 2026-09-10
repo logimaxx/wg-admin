@@ -56,6 +56,44 @@
     });
   }
 
+  function showQr(url, configUrl) {
+    const img = $("#qr-image");
+    if (img) img.src = url;
+    const download = $("#qr-download");
+    if (download) {
+      if (configUrl) {
+        download.href = configUrl;
+        download.hidden = false;
+      } else {
+        download.hidden = true;
+      }
+    }
+    openModal("qr-modal");
+  }
+
+  function syncExistingKey() {
+    const toggle = $("[data-existing-key]");
+    const fields = $("[data-existing-fields]");
+    if (!toggle || !fields) return;
+    fields.hidden = !toggle.checked;
+    const keyInput = $('input[name="public_key"]', fields);
+    if (keyInput) keyInput.required = toggle.checked;
+    const psk = $('input[name="use_psk"]');
+    if (psk && toggle.dataset.pskTouched !== "1") {
+      psk.checked = !toggle.checked;
+    }
+  }
+
+  document.addEventListener("change", (event) => {
+    if (event.target.closest("[data-existing-key]")) {
+      syncExistingKey();
+    }
+    if (event.target.closest('input[name="use_psk"]')) {
+      const toggle = $("[data-existing-key]");
+      if (toggle) toggle.dataset.pskTouched = "1";
+    }
+  });
+
   document.addEventListener("click", (event) => {
     const themeToggle = event.target.closest("[data-theme-toggle]");
     if (themeToggle) {
@@ -81,9 +119,7 @@
     }
     const qr = event.target.closest("[data-qr]");
     if (qr) {
-      const img = $("#qr-image");
-      if (img) img.src = qr.dataset.qr;
-      openModal("qr-modal");
+      showQr(qr.dataset.qr, qr.dataset.config);
     }
     const edit = event.target.closest("[data-edit]");
     if (edit) {
@@ -93,7 +129,14 @@
       $("#edit-ips").value = edit.dataset.editIps || "";
       $("#edit-keepalive").value = edit.dataset.editKeepalive || "";
       $("#edit-notes").value = edit.dataset.editNotes || "";
+      $("#edit-client-dns").value = edit.dataset.editClientDns || "";
+      $("#edit-client-allowed").value = edit.dataset.editClientAllowed || "";
+      $("#edit-client-endpoint").value = edit.dataset.editClientEndpoint || "";
       openModal("edit-peer");
+    }
+    const sortBtn = event.target.closest("[data-sort]");
+    if (sortBtn) {
+      sortPeers(sortBtn.dataset.sort);
     }
   });
 
@@ -109,7 +152,72 @@
   });
 
   const table = $("table[data-status-url]");
+  const tbody = table ? $("tbody", table) : null;
+  if (tbody) {
+    $$("tr[data-peer]", tbody).forEach((row, index) => {
+      row.dataset.index = String(index);
+    });
+  }
+
+  function rowText(row) {
+    return [row.dataset.name, row.dataset.ips, row.dataset.notes, row.dataset.peer]
+      .join(" ")
+      .toLowerCase();
+  }
+
+  function applyFilter() {
+    if (!tbody) return;
+    const input = $("[data-filter-peers]");
+    const needle = (input?.value || "").trim().toLowerCase();
+    let visible = 0;
+    $$("tr[data-peer]", tbody).forEach((row) => {
+      const show = !needle || rowText(row).includes(needle);
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+    const empty = $("[data-filter-empty]");
+    if (empty) empty.hidden = visible !== 0;
+  }
+
+  let sortState = { key: "", dir: 1 };
+  function sortPeers(key) {
+    if (!tbody) return;
+    if (sortState.key === key) sortState.dir *= -1;
+    else {
+      sortState.key = key;
+      sortState.dir = key === "name" || key === "ips" ? 1 : -1;
+    }
+    const rows = $$("tr[data-peer]", tbody);
+    const value = (row) => {
+      if (key === "handshake") return Number(row.dataset.handshakeTs || 0);
+      if (key === "transfer") return Number(row.dataset.transferBytes || 0);
+      if (key === "ips") return row.dataset.ips || "";
+      if (key === "name") return (row.dataset.name || "").toLowerCase();
+      return Number(row.dataset.index || 0);
+    };
+    rows.sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      const cmp = left < right ? -1 : left > right ? 1 : Number(a.dataset.index) - Number(b.dataset.index);
+      return cmp * sortState.dir;
+    });
+    rows.forEach((row) => tbody.appendChild(row));
+    $$("[data-sort]").forEach((btn) => btn.removeAttribute("aria-sort"));
+    const active = $(`[data-sort="${key}"]`);
+    if (active) active.setAttribute("aria-sort", sortState.dir === 1 ? "ascending" : "descending");
+  }
+
+  const filterInput = $("[data-filter-peers]");
+  if (filterInput) {
+    filterInput.addEventListener("input", applyFilter);
+  }
+
   if (table) {
+    const created = table.dataset.openQr;
+    if (created) {
+      const button = $$(`button[data-qr]`).find((el) => (el.dataset.qr || "").includes(`/peers/${created}/`));
+      if (button) showQr(button.dataset.qr, button.dataset.config);
+    }
     const refresh = async () => {
       try {
         const res = await fetch(table.dataset.statusUrl, { headers: { Accept: "application/json" } });
@@ -126,6 +234,8 @@
           if (transfer) transfer.textContent = peer.transfer;
           const endpoint = $("[data-endpoint]", row);
           if (endpoint) endpoint.textContent = peer.endpoint;
+          if (peer.handshake_ts !== undefined) row.dataset.handshakeTs = String(peer.handshake_ts);
+          if (peer.transfer_bytes !== undefined) row.dataset.transferBytes = String(peer.transfer_bytes);
         }
       } catch {
         /* keep last painted values */

@@ -4,6 +4,7 @@ from wg_admin.config import Settings
 from wg_admin.service import Manager, decode_peer_id, encode_peer_id
 from wg_admin.wg.keys import genkey, pubkey
 from wg_admin.wg.parse import parse_wg_config
+from wg_admin.wg.write import strip_runtime_config
 
 
 def _settings(tmp_path: Path, monkeypatch) -> Settings:
@@ -41,6 +42,58 @@ def test_add_peer_writes_config_and_keeps_hooks(tmp_path: Path, monkeypatch):
     assert "PrivateKey =" in client
     assert "Address = 10.8.0.5/32" in client
     assert "[Peer]" in client
+
+
+def test_add_peer_from_existing_public_key(tmp_path: Path, monkeypatch):
+    mgr = Manager(_settings(tmp_path, monkeypatch))
+    existing = pubkey(genkey())
+    peer = mgr.add_peer("wg0", "phone", "10.8.0.8/32", "25", public_key=existing, use_psk=False)
+    assert peer.public_key == existing
+    assert mgr.state.peer("wg0", existing).private_key == ""
+    try:
+        mgr.client_config("wg0", existing)
+        raise AssertionError("imported public key should not yield a client config")
+    except ValueError:
+        pass
+
+
+def test_client_overrides_and_disable(tmp_path: Path, monkeypatch):
+    mgr = Manager(_settings(tmp_path, monkeypatch))
+    peer = mgr.add_peer(
+        "wg0",
+        "laptop",
+        "10.8.0.5/32",
+        "25",
+        client_dns="10.8.0.1",
+        client_allowed_ips="10.8.0.0/24",
+        client_endpoint="vpn.example.com:51820",
+    )
+    client = mgr.client_config("wg0", peer.public_key)
+    assert "DNS = 10.8.0.1" in client
+    assert "AllowedIPs = 10.8.0.0/24" in client
+    assert "Endpoint = vpn.example.com:51820" in client
+    mgr.set_peer_disabled("wg0", peer.public_key, True)
+    cfg = parse_wg_config(tmp_path / "wg" / "wg0.conf")
+    assert cfg.peer_by_public_key(peer.public_key).disabled
+    assert peer.public_key not in strip_runtime_config(cfg)
+    mgr.set_peer_disabled("wg0", peer.public_key, False)
+    cfg = parse_wg_config(tmp_path / "wg" / "wg0.conf")
+    assert cfg.peer_by_public_key(peer.public_key).disabled is False
+    assert peer.public_key in strip_runtime_config(cfg)
+
+
+def test_restore_backup(tmp_path: Path, monkeypatch):
+    mgr = Manager(_settings(tmp_path, monkeypatch))
+    first = mgr.add_peer("wg0", "one", "10.8.0.5/32", "25")
+    mgr.add_peer("wg0", "two", "10.8.0.6/32", "25")
+    backups = mgr.backups("wg0")
+    assert backups
+    before_two = backups[0]
+    mgr.restore_backup("wg0", before_two.stamp)
+    cfg = parse_wg_config(tmp_path / "wg" / "wg0.conf")
+    names = [peer.name for peer in cfg.peers]
+    assert first.public_key in {peer.public_key for peer in cfg.peers}
+    assert "two" not in names
 
 
 def test_imported_peer_has_no_client_key(tmp_path: Path, monkeypatch):

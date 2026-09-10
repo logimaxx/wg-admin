@@ -21,11 +21,20 @@ class PeerMeta:
     name: str = ""
     private_key: str = ""
     notes: str = ""
+    client_dns: str = ""
+    client_allowed_ips: str = ""
+    client_endpoint: str = ""
 
     def to_dict(self) -> dict[str, str]:
         data = {"name": self.name, "notes": self.notes}
         if self.private_key:
             data["private_key"] = self.private_key
+        if self.client_dns:
+            data["client_dns"] = self.client_dns
+        if self.client_allowed_ips:
+            data["client_allowed_ips"] = self.client_allowed_ips
+        if self.client_endpoint:
+            data["client_endpoint"] = self.client_endpoint
         return data
 
 
@@ -60,6 +69,9 @@ class AppState:
                     name=str(meta.get("name", "")),
                     private_key=str(meta.get("private_key", "")),
                     notes=str(meta.get("notes", "")),
+                    client_dns=str(meta.get("client_dns", "")),
+                    client_allowed_ips=str(meta.get("client_allowed_ips", "")),
+                    client_endpoint=str(meta.get("client_endpoint", "")),
                 )
                 for pubkey, meta in peers.items()
             }

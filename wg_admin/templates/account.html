@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth">
+  <div class="panel auth-card">
+    <p class="eyebrow">Admin</p>
+    <h1>Change password</h1>
+    <p class="lede">This only updates the wg-admin console. WireGuard keys and configs are not touched.</p>
+    <form method="post" action="/account" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>
+        <span>Current password</span>
+        <input type="password" name="current" autocomplete="current-password" required autofocus>
+      </label>
+      <label>
+        <span>New password</span>
+        <input type="password" name="password" autocomplete="new-password" minlength="8" required>
+      </label>
+      <label>
+        <span>Confirm new password</span>
+        <input type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="submit">Update password</button>
+        <a class="btn" href="/">Back</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

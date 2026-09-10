@@ -18,6 +18,21 @@ def _raw(key: str) -> bytes:
     return data
 
 
+def is_key(key: str) -> bool:
+    try:
+        _raw(key.strip())
+        return True
+    except Exception:
+        return False
+
+
+def require_key(key: str, label: str = "key") -> str:
+    stripped = key.strip()
+    if not is_key(stripped):
+        raise ValueError(f"Not a valid WireGuard {label}")
+    return stripped
+
+
 def genkey() -> str:
     private = X25519PrivateKey.generate()
     raw = private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())

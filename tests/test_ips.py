@@ -37,3 +37,16 @@ AllowedIPs = 10.8.0.3/32
 """
     cfg = parse_wg_config(_cfg(tmp_path, extra))
     assert next_ipv4(cfg) == "10.8.0.4/32"
+
+
+def test_next_ip_skips_disabled_peer(tmp_path: Path):
+    extra = """
+# wg-admin:disabled
+# parked
+# [Peer]
+# PublicKey = CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=
+# AllowedIPs = 10.8.0.3/32
+"""
+    cfg = parse_wg_config(_cfg(tmp_path, extra))
+    assert cfg.peers[-1].disabled
+    assert next_ipv4(cfg) == "10.8.0.4/32"

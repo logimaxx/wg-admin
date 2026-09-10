@@ -16,6 +16,8 @@ WG_QUICK_ONLY = {
     "saveconfig",
 }
 
+DISABLED_MARKER = "wg-admin:disabled"
+
 
 @dataclass
 class WgPeer:
@@ -27,6 +29,7 @@ class WgPeer:
     extra: list[tuple[str, str]] = field(default_factory=list)
     name: str = ""
     comments: list[str] = field(default_factory=list)
+    disabled: bool = False
 
     def allowed_ips_csv(self) -> str:
         return ", ".join(self.allowed_ips)
@@ -123,6 +126,65 @@ def _peer_from_pairs(pairs: list[tuple[str, str]], comments: list[str]) -> WgPee
     return peer
 
 
+def _comment_body(line: str) -> str:
+    return line.lstrip("#;").strip()
+
+
+def _take_disabled_peer(lines: list[str]) -> tuple[WgPeer | None, list[str]]:
+    if not any(_comment_body(line).lower() == DISABLED_MARKER for line in lines):
+        return None, lines
+    pairs: list[tuple[str, str]] = []
+    comments: list[str] = []
+    rest: list[str] = []
+    name = ""
+    seen_peer = False
+    seen_keys = False
+    for line in lines:
+        body = _comment_body(line)
+        if body.lower() == DISABLED_MARKER:
+            continue
+        if body.lower() == "[peer]":
+            seen_peer = True
+            continue
+        if seen_peer:
+            if "=" in body:
+                key, value = body.split("=", 1)
+                pairs.append((key.strip(), _split_comment(value.strip())))
+                seen_keys = True
+                continue
+            if seen_keys:
+                rest.append(line)
+                continue
+            comments.append(line)
+            continue
+        if body and not name:
+            name = body
+        else:
+            comments.append(line)
+    peer = _peer_from_pairs(pairs, comments)
+    if not peer.public_key:
+        return None, lines
+    peer.disabled = True
+    if name:
+        peer.name = name
+    return peer, rest
+
+
+def _peer_key_lines(peer: WgPeer) -> list[str]:
+    lines = ["[Peer]", f"PublicKey = {peer.public_key}"]
+    if peer.preshared_key:
+        lines.append(f"PresharedKey = {peer.preshared_key}")
+    if peer.allowed_ips:
+        lines.append(f"AllowedIPs = {peer.allowed_ips_csv()}")
+    if peer.endpoint:
+        lines.append(f"Endpoint = {peer.endpoint}")
+    if peer.persistent_keepalive is not None:
+        lines.append(f"PersistentKeepalive = {peer.persistent_keepalive}")
+    for key, value in peer.extra:
+        lines.append(f"{key} = {value}")
+    return lines
+
+
 def parse_wg_config(path: Path, name: str | None = None) -> WgConfig:
     text = path.read_text(encoding="utf-8")
     config = WgConfig(name=name or path.stem, path=path)
@@ -130,6 +192,7 @@ def parse_wg_config(path: Path, name: str | None = None) -> WgConfig:
     pending_comments: list[str] = []
     peer_comments: list[str] = []
     peer_pairs: list[tuple[str, str]] = []
+    comment_run: list[str] = []
 
     def flush_peer() -> None:
         nonlocal peer_pairs, peer_comments
@@ -140,21 +203,37 @@ def parse_wg_config(path: Path, name: str | None = None) -> WgConfig:
         peer_pairs = []
         peer_comments = []
 
+    def flush_comment_run() -> None:
+        nonlocal comment_run, pending_comments, peer_comments
+        lines = comment_run
+        comment_run = []
+        if not lines:
+            return
+        disabled, rest = _take_disabled_peer(lines)
+        if disabled is not None:
+            flush_peer()
+            config.peers.append(disabled)
+            pending_comments.extend(rest)
+            return
+        if section is None:
+            config.preamble.extend(lines)
+        elif section == "peer" and not peer_pairs:
+            peer_comments.extend(lines)
+        else:
+            pending_comments.extend(lines)
+
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
         if not stripped:
+            flush_comment_run()
             if section is None:
                 config.preamble.append(raw_line)
             continue
         if stripped.startswith("#") or stripped.startswith(";"):
-            if section is None:
-                config.preamble.append(raw_line)
-            elif section == "peer" and not peer_pairs:
-                peer_comments.append(stripped)
-            else:
-                pending_comments.append(stripped)
+            comment_run.append(stripped)
             continue
         if stripped.startswith("[") and stripped.endswith("]"):
+            flush_comment_run()
             label = stripped[1:-1].strip().lower()
             if label == "interface":
                 flush_peer()
@@ -168,6 +247,7 @@ def parse_wg_config(path: Path, name: str | None = None) -> WgConfig:
                 flush_peer()
                 section = label
             continue
+        flush_comment_run()
         if "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
@@ -177,6 +257,7 @@ def parse_wg_config(path: Path, name: str | None = None) -> WgConfig:
         elif section == "peer":
             peer_pairs.append((key, value))
 
+    flush_comment_run()
     flush_peer()
     return config
 
@@ -192,22 +273,18 @@ def render_wg_config(config: WgConfig) -> str:
         lines.append(f"{key} = {value}")
     for peer in config.peers:
         lines.append("")
+        if peer.disabled:
+            lines.append(f"# {DISABLED_MARKER}")
+            if peer.name:
+                lines.append(f"# {peer.name}")
+            for row in _peer_key_lines(peer):
+                lines.append(f"# {row}")
+            continue
         if peer.name:
             lines.append(f"# {peer.name}")
         elif peer.comments:
             lines.extend(peer.comments)
-        lines.append("[Peer]")
-        lines.append(f"PublicKey = {peer.public_key}")
-        if peer.preshared_key:
-            lines.append(f"PresharedKey = {peer.preshared_key}")
-        if peer.allowed_ips:
-            lines.append(f"AllowedIPs = {peer.allowed_ips_csv()}")
-        if peer.endpoint:
-            lines.append(f"Endpoint = {peer.endpoint}")
-        if peer.persistent_keepalive is not None:
-            lines.append(f"PersistentKeepalive = {peer.persistent_keepalive}")
-        for key, value in peer.extra:
-            lines.append(f"{key} = {value}")
+        lines.extend(_peer_key_lines(peer))
     lines.append("")
     return "\n".join(lines)
 

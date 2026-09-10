@@ -1,6 +1,6 @@
 [project]
 name = "wg-admin"
-version = "0.1.0"
+version = "0.2.0"
 description = "Web UI to manage a running WireGuard instance without replacing its config."
 readme = "README.md"
 license = { file = "LICENSE" }

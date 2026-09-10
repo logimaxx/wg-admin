@@ -10,13 +10,13 @@ Every `*.conf` on the host is listed in place. Status comes from `wg` when the i
 
 ## Peers
 
-Open an interface to see peers, last handshake, and transfer. Existing comments become display names.
+Open an interface to see peers, last handshake, and transfer. Filter or sort the list. Disable a peer to keep it in the file without leaving it live.
 
 ![Peer list for wg0 with live handshake and transfer](screenshots/interface.png)
 
 ## Add a peer
 
-A new keypair is generated on the server. The next free IPv4 in the interface subnet is suggested automatically.
+Generate a keypair on the server, or paste a public key the client already has. The next free IPv4 in the interface subnet is suggested automatically. After create, the QR and `.conf` open when the private key is stored here.
 
 ![Add peer dialog](screenshots/add-peer.png)
 

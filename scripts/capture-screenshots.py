@@ -192,16 +192,16 @@ def _capture() -> None:
         page.fill('input[name="client_allowed_ips"]', "0.0.0.0/0, ::/0")
         _shot(page, "interface.png", banners=True)
 
+        page.set_viewport_size({"width": 1280, "height": 920})
         page.click('button[data-open="add-peer"]')
         page.wait_for_selector("#add-peer:not([hidden])")
         _shot(page, "add-peer.png", full_page=False)
+        page.set_viewport_size({"width": 1280, "height": 800})
 
         page.locator('#add-peer input[name="peer_name"]').fill("Sergiu laptop")
         page.locator("#add-peer form").evaluate("form => form.submit()")
         page.wait_for_function("() => location.pathname === '/interfaces/wg0'")
         page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(300)
-        page.locator("button[data-qr]").first.click()
         page.wait_for_selector("#qr-modal:not([hidden])")
         page.wait_for_function(
             "() => { const img = document.getElementById('qr-image'); return img && img.complete && img.naturalWidth > 0; }"

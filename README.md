@@ -18,10 +18,11 @@ Install it on a host that already has a working VPN. Existing `[Interface]` keys
 
 - **Inherits live configs** — every `*.conf` in `/etc/wireguard` is listed and managed in place
 - **Non-disruptive apply** — writes the file, then `wg syncconf` when the interface is up (no bounce)
-- **Peer lifecycle** — add, rename, edit, rotate keys, and remove peers
-- **Client onboarding** — downloadable `.conf` and QR code for peers created or rotated in the UI
-- **Live status** — last handshake, transfer, and endpoint from `wg`
-- **Safe first write** — a backup is stored under `/var/lib/wg-admin/backups/` before the file is changed
+- **Peer lifecycle** — add, rename, edit, disable without deleting, rotate keys, and remove peers
+- **Existing public keys** — paste a key from a client that already has one, instead of generating a new pair
+- **Client onboarding** — downloadable `.conf` and QR code right after create or rotate; per-peer DNS / AllowedIPs / endpoint overrides
+- **Live status** — last handshake, transfer, and endpoint from `wg`, with search and sort
+- **Restore backups** — a copy is stored under `/var/lib/wg-admin/backups/` before each write; restore from the UI
 - **Local by default** — binds to `127.0.0.1`; put Caddy or nginx with TLS in front if others need access
 
 ## Requirements
@@ -77,14 +78,16 @@ Keep the service on localhost. Put a reverse proxy with TLS in front if anyone e
 
 WireGuard never stores a client private key on the server. Peers that already existed can be edited and removed, but a downloadable `.conf` / QR code is only available for peers created (or rotated) in this UI.
 
-Client-only settings (public endpoint, DNS, client AllowedIPs) are stored in `/var/lib/wg-admin/state.json`, not in the server config.
+Client-only settings (public endpoint, DNS, client AllowedIPs) live in `/var/lib/wg-admin/state.json`, not in the server config. A peer can override those defaults without changing the interface.
+
+Disabled peers are commented out in the server file (`# wg-admin:disabled`) so `wg-quick` and `wg syncconf` skip them. Their addresses stay reserved.
 
 ## Daily use
 
-- Open an interface to see peers, last handshake, and transfer.
-- **Add peer** generates keys, picks the next free IPv4 in the interface subnet, and writes the server file.
-- Download the client file or scan the QR code.
-- Save / apply uses `wg syncconf` when the interface is up. If it is down, only the file is updated.
+- Open an interface to see peers, last handshake, and transfer. Filter or sort the list when it grows.
+- **Add peer** generates keys (or takes an existing public key), picks the next free IPv4, and writes the server file. The QR / `.conf` opens immediately when the private key is stored here.
+- **Disable** a peer to drop it from the live interface without deleting the block. Restore a backup if a write needs undoing.
+- Save / apply uses `wg syncconf` when the interface is up. If it is down, only the file is updated. Change the admin password from **Password** in the header.
 
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import urlencode
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from wg_admin import __version__
 from wg_admin.config import Settings, get_settings
-from wg_admin.service import Manager, check_password, decode_peer_id, safe_name
+from wg_admin.service import Manager, check_password, decode_peer_id, encode_peer_id, safe_name
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -78,8 +78,9 @@ def _ctx(request: Request, **extra):
     }
 
 
-def _redirect(path: str, notice: str = "") -> RedirectResponse:
-    url = f"{path}?notice={quote(notice)}" if notice else path
+def _redirect(path: str, notice: str = "", **query) -> RedirectResponse:
+    params = {key: value for key, value in {"notice": notice, **query}.items() if value}
+    url = f"{path}?{urlencode(params)}" if params else path
     return RedirectResponse(url, status_code=303)
 
 
@@ -214,6 +215,43 @@ async def logout(request: Request, csrf: str = Form(...)):
     return RedirectResponse("/login", status_code=303)
 
 
+@app.get("/account", response_class=HTMLResponse)
+async def account_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "account.html",
+        _ctx(request, title="Password"),
+    )
+
+
+@app.post("/account")
+async def account_submit(
+    request: Request,
+    csrf: str = Form(...),
+    current: str = Form(...),
+    password: str = Form(...),
+    confirm: str = Form(...),
+):
+    _check_csrf(request, csrf)
+    if password != confirm:
+        return templates.TemplateResponse(
+            request,
+            "account.html",
+            _ctx(request, title="Password", error="Passwords do not match."),
+            status_code=400,
+        )
+    try:
+        _manager(request).change_password(current, password)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "account.html",
+            _ctx(request, title="Password", error=str(exc)),
+            status_code=400,
+        )
+    return _redirect("/account", "Password updated.")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     interfaces = _manager(request).dashboard(host_hint=_host_hint(request))
@@ -235,7 +273,12 @@ async def interface_page(request: Request, name: str):
     return templates.TemplateResponse(
         request,
         "interface.html",
-        _ctx(request, title=view.name, view=view),
+        _ctx(
+            request,
+            title=view.name,
+            view=view,
+            created=request.query_params.get("created", ""),
+        ),
     )
 
 
@@ -264,11 +307,34 @@ async def add_peer(
     keepalive: str = Form("25"),
     notes: str = Form(""),
     use_psk: str = Form(""),
+    public_key: str = Form(""),
+    preshared_key: str = Form(""),
+    client_dns: str = Form(""),
+    client_allowed_ips: str = Form(""),
+    client_endpoint: str = Form(""),
 ):
     _check_csrf(request, csrf)
     name = safe_name(name)
-    peer = _manager(request).add_peer(name, peer_name, allowed_ips, keepalive, notes, use_psk=bool(use_psk))
-    return _redirect(f"/interfaces/{name}", f"Added {peer.name}. Download the client config now.")
+    peer = _manager(request).add_peer(
+        name,
+        peer_name,
+        allowed_ips,
+        keepalive,
+        notes,
+        use_psk=bool(use_psk),
+        public_key=public_key,
+        preshared_key=preshared_key,
+        client_dns=client_dns,
+        client_allowed_ips=client_allowed_ips,
+        client_endpoint=client_endpoint,
+    )
+    if public_key.strip():
+        return _redirect(f"/interfaces/{name}", f"Added {peer.name} from an existing public key.")
+    return _redirect(
+        f"/interfaces/{name}",
+        f"Added {peer.name}. Download or scan the client config now.",
+        created=encode_peer_id(peer.public_key),
+    )
 
 
 @app.post("/interfaces/{name}/peers/{public_key}/edit")
@@ -281,11 +347,24 @@ async def edit_peer(
     allowed_ips: str = Form(""),
     keepalive: str = Form(""),
     notes: str = Form(""),
+    client_dns: str = Form(""),
+    client_allowed_ips: str = Form(""),
+    client_endpoint: str = Form(""),
 ):
     _check_csrf(request, csrf)
     name = safe_name(name)
     public_key = decode_peer_id(public_key)
-    _manager(request).edit_peer(name, public_key, peer_name, allowed_ips, keepalive, notes)
+    _manager(request).edit_peer(
+        name,
+        public_key,
+        peer_name,
+        allowed_ips,
+        keepalive,
+        notes,
+        client_dns=client_dns,
+        client_allowed_ips=client_allowed_ips,
+        client_endpoint=client_endpoint,
+    )
     return _redirect(f"/interfaces/{name}", "Peer updated.")
 
 
@@ -297,12 +376,32 @@ async def delete_peer(request: Request, name: str, public_key: str, csrf: str = 
     return _redirect(f"/interfaces/{name}", "Peer removed.")
 
 
+@app.post("/interfaces/{name}/peers/{public_key}/disable")
+async def disable_peer(request: Request, name: str, public_key: str, csrf: str = Form(...)):
+    _check_csrf(request, csrf)
+    name = safe_name(name)
+    peer = _manager(request).set_peer_disabled(name, decode_peer_id(public_key), True)
+    return _redirect(f"/interfaces/{name}", f"Disabled {peer.name}. Kept in the file, removed from the live interface.")
+
+
+@app.post("/interfaces/{name}/peers/{public_key}/enable")
+async def enable_peer(request: Request, name: str, public_key: str, csrf: str = Form(...)):
+    _check_csrf(request, csrf)
+    name = safe_name(name)
+    peer = _manager(request).set_peer_disabled(name, decode_peer_id(public_key), False)
+    return _redirect(f"/interfaces/{name}", f"Enabled {peer.name}.")
+
+
 @app.post("/interfaces/{name}/peers/{public_key}/rotate")
 async def rotate_peer(request: Request, name: str, public_key: str, csrf: str = Form(...)):
     _check_csrf(request, csrf)
     name = safe_name(name)
     peer = _manager(request).rotate_peer(name, decode_peer_id(public_key))
-    return _redirect(f"/interfaces/{name}", f"Rotated keys for {peer.name}. Download a new client config.")
+    return _redirect(
+        f"/interfaces/{name}",
+        f"Rotated keys for {peer.name}. Download a new client config.",
+        created=encode_peer_id(peer.public_key),
+    )
 
 
 @app.get("/interfaces/{name}/peers/{public_key}/config")
@@ -327,6 +426,17 @@ async def peer_qr(request: Request, name: str, public_key: str):
     return Response(content=png, media_type="image/png")
 
 
+@app.post("/interfaces/{name}/backups/{stamp}/restore")
+async def restore_backup(request: Request, name: str, stamp: str, csrf: str = Form(...)):
+    _check_csrf(request, csrf)
+    name = safe_name(name)
+    _manager(request).restore_backup(name, stamp)
+    return _redirect(
+        f"/interfaces/{name}",
+        f"Restored {name}.conf from {stamp}. Current file was backed up first.",
+    )
+
+
 @app.get("/api/interfaces/{name}/status")
 async def interface_status(request: Request, name: str):
     view = _manager(request).interface_view(safe_name(name))
@@ -338,7 +448,9 @@ async def interface_status(request: Request, name: str):
                 "public_key": peer.public_key,
                 "handshake": peer.handshake,
                 "handshake_class": peer.handshake_class,
+                "handshake_ts": peer.handshake_ts,
                 "transfer": peer.transfer,
+                "transfer_bytes": peer.transfer_bytes,
                 "endpoint": peer.endpoint,
             }
             for peer in view.peers

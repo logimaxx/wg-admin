@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,9 +9,15 @@ import bcrypt
 import qrcode
 
 from wg_admin.config import Settings
-from wg_admin.state import AppState, InterfaceMeta
+from wg_admin.state import AppState, InterfaceMeta, PeerMeta
 from wg_admin.wg.ips import next_ipv4
-from wg_admin.wg.keys import genkey, genpsk, pubkey
+from wg_admin.wg.keys import genkey, genpsk, pubkey, require_key
+from wg_admin.wg.parse import WgConfig, WgPeer, load_configs, parse_wg_config, render_wg_config
+from wg_admin.wg.runtime import Runtime, load_runtime, syncconf
+from wg_admin.wg.write import apply_config
+
+
+BACKUP_STAMP = re.compile(r"^\d{8}-\d{6}$")
 
 
 def safe_pubkey(private_key: str) -> str:
@@ -20,9 +27,6 @@ def safe_pubkey(private_key: str) -> str:
         return pubkey(private_key)
     except ValueError:
         return ""
-from wg_admin.wg.parse import WgConfig, WgPeer, load_configs, parse_wg_config, render_wg_config
-from wg_admin.wg.runtime import Runtime, load_runtime, syncconf
-from wg_admin.wg.write import apply_config
 
 
 def hash_password(password: str) -> str:
@@ -81,10 +85,23 @@ class PeerView:
     has_private_key: bool
     handshake: str
     handshake_class: str
+    handshake_ts: int
     transfer: str
+    transfer_bytes: int
     endpoint: str
     encoded_key: str
     notes: str
+    disabled: bool
+    client_dns: str
+    client_allowed_ips: str
+    client_endpoint: str
+
+
+@dataclass
+class BackupView:
+    stamp: str
+    label: str
+    size: str
 
 
 @dataclass
@@ -101,6 +118,7 @@ class InterfaceView:
     next_ip: str
     peers: list[PeerView]
     suggested_endpoint: str
+    backups: list[BackupView]
 
 
 class Manager:
@@ -139,6 +157,14 @@ class Manager:
         self.state.password_hash = hash_password(password)
         self.state.save()
 
+    def change_password(self, current: str, new_password: str) -> None:
+        if not check_password(current, self.state.password_hash):
+            raise ValueError("Current password is wrong")
+        if len(new_password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        self.state.password_hash = hash_password(new_password)
+        self.state.save()
+
     def apply(self, config: WgConfig) -> None:
         def run_sync(name: str, stripped: str) -> None:
             if self.settings.demo:
@@ -172,6 +198,16 @@ class Manager:
             latest = max(latest, handshake_ts)
             rx = live.transfer_rx if live else 0
             tx = live.transfer_tx if live else 0
+            if peer.disabled:
+                handshake = "disabled"
+                handshake_css = "led-off"
+                transfer = "—"
+                endpoint = "—"
+            else:
+                handshake = handshake_age(handshake_ts)
+                handshake_css = handshake_class(handshake_ts)
+                transfer = f"{format_bytes(rx)} in / {format_bytes(tx)} out" if live else "—"
+                endpoint = (live.endpoint if live and live.endpoint else peer.endpoint) or "—"
             peers.append(
                 PeerView(
                     name=display,
@@ -179,12 +215,18 @@ class Manager:
                     allowed_ips=peer.allowed_ips_csv(),
                     keepalive="" if peer.persistent_keepalive is None else str(peer.persistent_keepalive),
                     has_private_key=bool(meta.private_key),
-                    handshake=handshake_age(handshake_ts),
-                    handshake_class=handshake_class(handshake_ts),
-                    transfer=f"{format_bytes(rx)} in / {format_bytes(tx)} out" if live else "—",
-                    endpoint=(live.endpoint if live and live.endpoint else peer.endpoint) or "—",
+                    handshake=handshake,
+                    handshake_class=handshake_css,
+                    handshake_ts=0 if peer.disabled else handshake_ts,
+                    transfer=transfer,
+                    transfer_bytes=0 if peer.disabled else rx + tx,
+                    endpoint=endpoint,
                     encoded_key=encode_peer_id(peer.public_key),
                     notes=meta.notes,
+                    disabled=peer.disabled,
+                    client_dns=meta.client_dns,
+                    client_allowed_ips=meta.client_allowed_ips,
+                    client_endpoint=meta.client_endpoint,
                 )
             )
         endpoint = settings.endpoint
@@ -206,6 +248,7 @@ class Manager:
             next_ip=suggested_ip,
             peers=peers,
             suggested_endpoint=endpoint,
+            backups=self.backups(name),
         )
 
     def dashboard(self, host_hint: str = "") -> list[InterfaceView]:
@@ -220,17 +263,37 @@ class Manager:
         keepalive: str,
         notes: str = "",
         use_psk: bool = True,
+        public_key: str = "",
+        preshared_key: str = "",
+        client_dns: str = "",
+        client_allowed_ips: str = "",
+        client_endpoint: str = "",
     ) -> WgPeer:
         config = self.config(name)
-        private_key = genkey()
-        public_key = pubkey(private_key)
+        existing = public_key.strip()
+        if existing:
+            existing = require_key(existing, "public key")
+            if config.peer_by_public_key(existing):
+                raise ValueError("A peer with this public key already exists")
+            private_key = ""
+            public_key = existing
+        else:
+            private_key = genkey()
+            public_key = pubkey(private_key)
         ips = [part.strip() for part in allowed_ips.split(",") if part.strip()]
         if not ips:
             ips = [next_ipv4(config)]
+        psk = preshared_key.strip()
+        if psk:
+            psk = require_key(psk, "preshared key")
+        elif use_psk:
+            psk = genpsk()
+        else:
+            psk = None
         peer = WgPeer(
             public_key=public_key,
             allowed_ips=ips,
-            preshared_key=genpsk() if use_psk else None,
+            preshared_key=psk,
             persistent_keepalive=int(keepalive) if keepalive.strip() else 25,
             name=peer_name.strip() or public_key[:8],
         )
@@ -239,8 +302,20 @@ class Manager:
         meta.name = peer.name
         meta.private_key = private_key
         meta.notes = notes.strip()
+        self._store_client_overrides(meta, client_dns, client_allowed_ips, client_endpoint)
         self.apply(config)
         return peer
+
+    def _store_client_overrides(
+        self,
+        meta: PeerMeta,
+        client_dns: str,
+        client_allowed_ips: str,
+        client_endpoint: str,
+    ) -> None:
+        meta.client_dns = client_dns.strip()
+        meta.client_allowed_ips = client_allowed_ips.strip()
+        meta.client_endpoint = client_endpoint.strip()
 
     def edit_peer(
         self,
@@ -250,6 +325,9 @@ class Manager:
         allowed_ips: str,
         keepalive: str,
         notes: str = "",
+        client_dns: str = "",
+        client_allowed_ips: str = "",
+        client_endpoint: str = "",
     ) -> None:
         config = self.config(name)
         peer = config.peer_by_public_key(public_key)
@@ -261,7 +339,17 @@ class Manager:
         meta = self.state.peer(name, public_key)
         meta.name = peer.name
         meta.notes = notes.strip()
+        self._store_client_overrides(meta, client_dns, client_allowed_ips, client_endpoint)
         self.apply(config)
+
+    def set_peer_disabled(self, name: str, public_key: str, disabled: bool) -> WgPeer:
+        config = self.config(name)
+        peer = config.peer_by_public_key(public_key)
+        if peer is None:
+            raise FileNotFoundError(public_key)
+        peer.disabled = disabled
+        self.apply(config)
+        return peer
 
     def delete_peer(self, name: str, public_key: str) -> None:
         config = self.config(name)
@@ -302,6 +390,33 @@ class Manager:
         meta.client_allowed_ips = client_allowed_ips.strip() or "0.0.0.0/0, ::/0"
         self.state.save()
 
+    def backups(self, name: str) -> list[BackupView]:
+        prefix = f"{name}.conf."
+        items: list[BackupView] = []
+        for path in sorted(self.settings.backup_dir.glob(f"{name}.conf.*"), reverse=True):
+            stamp = path.name[len(prefix) :]
+            if not BACKUP_STAMP.match(stamp):
+                continue
+            try:
+                parsed = datetime.strptime(stamp, "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+                label = parsed.strftime("%Y-%m-%d %H:%M:%S UTC")
+            except ValueError:
+                label = stamp
+            items.append(BackupView(stamp=stamp, label=label, size=format_bytes(path.stat().st_size)))
+        return items
+
+    def restore_backup(self, name: str, stamp: str) -> None:
+        if not BACKUP_STAMP.match(stamp):
+            raise FileNotFoundError(stamp)
+        backup_dir = self.settings.backup_dir.resolve()
+        src = (self.settings.backup_dir / f"{name}.conf.{stamp}").resolve()
+        if src.parent != backup_dir or not src.is_file():
+            raise FileNotFoundError(stamp)
+        live = self.config(name)
+        restored = parse_wg_config(src, name=name)
+        restored.path = live.path
+        self.apply(restored)
+
     def client_config(self, name: str, public_key: str) -> str:
         config = self.config(name)
         peer = config.peer_by_public_key(public_key)
@@ -313,14 +428,17 @@ class Manager:
         iface = self.state.interface(name)
         server_pub = safe_pubkey(config.private_key())
         address = peer.allowed_ips[0] if peer.allowed_ips else ""
+        dns = meta.client_dns or iface.client_dns
+        endpoint = meta.client_endpoint or iface.endpoint
+        allowed = meta.client_allowed_ips or iface.client_allowed_ips
         lines = [
             f"# {meta.name or peer.name or name}",
             "[Interface]",
             f"PrivateKey = {meta.private_key}",
             f"Address = {address}",
         ]
-        if iface.client_dns:
-            lines.append(f"DNS = {iface.client_dns}")
+        if dns:
+            lines.append(f"DNS = {dns}")
         lines.extend(
             [
                 "",
@@ -330,9 +448,9 @@ class Manager:
         )
         if peer.preshared_key:
             lines.append(f"PresharedKey = {peer.preshared_key}")
-        if iface.endpoint:
-            lines.append(f"Endpoint = {iface.endpoint}")
-        lines.append(f"AllowedIPs = {iface.client_allowed_ips}")
+        if endpoint:
+            lines.append(f"Endpoint = {endpoint}")
+        lines.append(f"AllowedIPs = {allowed}")
         if peer.persistent_keepalive is not None:
             lines.append(f"PersistentKeepalive = {peer.persistent_keepalive}")
         lines.append("")

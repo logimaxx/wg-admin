@@ -26,7 +26,7 @@
   </div>
   <form class="panel stack" method="post" action="/interfaces/{{ view.name }}/settings">
     <h2>Client defaults</h2>
-    <p class="muted">Used when building a peer’s downloadable config and QR code. Not written into the server <code>.conf</code>.</p>
+    <p class="muted">Used when building a peer’s downloadable config and QR code. Not written into the server <code>.conf</code>. A peer can override these in Edit.</p>
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>
       <span>Public endpoint</span>
@@ -47,29 +47,44 @@
 <section class="panel table-wrap">
   <div class="table-head">
     <h2>Peers</h2>
-    <span class="muted">{{ view.peer_count }} inherited or created</span>
+    <div class="table-tools">
+      <span class="muted">{{ view.peer_count }} inherited or created</span>
+      {% if view.peers %}
+      <label class="filter">
+        <span class="visually-hidden">Filter peers</span>
+        <input type="search" data-filter-peers placeholder="Filter by name, IP, or key" autocomplete="off">
+      </label>
+      {% endif %}
+    </div>
   </div>
   {% if not view.peers %}
   <p class="muted">No peers yet. Add one to issue a client config.</p>
   {% else %}
-  <table class="peers" data-status-url="/api/interfaces/{{ view.name }}/status">
+  <table class="peers" data-status-url="/api/interfaces/{{ view.name }}/status" data-open-qr="{{ created or '' }}">
     <thead>
       <tr>
-        <th>Peer</th>
-        <th>Allowed IPs</th>
-        <th>Handshake</th>
-        <th>Transfer</th>
+        <th><button class="th-sort" type="button" data-sort="name">Peer</button></th>
+        <th><button class="th-sort" type="button" data-sort="ips">Allowed IPs</button></th>
+        <th><button class="th-sort" type="button" data-sort="handshake">Handshake</button></th>
+        <th><button class="th-sort" type="button" data-sort="transfer">Transfer</button></th>
         <th>Endpoint</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for peer in view.peers %}
-      <tr data-peer="{{ peer.public_key }}">
+      <tr data-peer="{{ peer.public_key }}"
+          data-name="{{ peer.name }}"
+          data-ips="{{ peer.allowed_ips }}"
+          data-notes="{{ peer.notes }}"
+          data-handshake-ts="{{ peer.handshake_ts }}"
+          data-transfer-bytes="{{ peer.transfer_bytes }}"
+          class="{{ 'is-disabled' if peer.disabled else '' }}">
         <td>
           <div class="peer-name">
             <span class="led {{ peer.handshake_class }}" data-led></span>
             <strong>{{ peer.name }}</strong>
+            {% if peer.disabled %}<span class="pill">disabled</span>{% endif %}
           </div>
           <div class="mono dim">{{ peer.public_key[:20] }}…</div>
         </td>
@@ -80,12 +95,25 @@
         <td class="actions">
           {% if peer.has_private_key %}
           <a class="btn btn-small" href="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/config">.conf</a>
-          <button class="btn btn-small" type="button" data-qr="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/qr">QR</button>
+          <button class="btn btn-small" type="button"
+            data-qr="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/qr"
+            data-config="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/config">QR</button>
           {% else %}
           <span class="muted" title="This peer was imported. The private key is not on the server.">no client key</span>
           <form method="post" action="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/rotate" class="inline" data-confirm="Rotate keys? The existing client will stop working until it installs the new config.">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <button class="linkish" type="submit">Rotate</button>
+          </form>
+          {% endif %}
+          {% if peer.disabled %}
+          <form method="post" action="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/enable" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="linkish" type="submit">Enable</button>
+          </form>
+          {% else %}
+          <form method="post" action="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/disable" class="inline" data-confirm="Disable {{ peer.name }}? It stays in the file, commented out, and is removed from the live interface.">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="linkish" type="submit">Disable</button>
           </form>
           {% endif %}
           <button class="linkish" type="button"
@@ -94,7 +122,10 @@
             data-edit-name="{{ peer.name }}"
             data-edit-ips="{{ peer.allowed_ips }}"
             data-edit-keepalive="{{ peer.keepalive }}"
-            data-edit-notes="{{ peer.notes }}">Edit</button>
+            data-edit-notes="{{ peer.notes }}"
+            data-edit-client-dns="{{ peer.client_dns }}"
+            data-edit-client-allowed="{{ peer.client_allowed_ips }}"
+            data-edit-client-endpoint="{{ peer.client_endpoint }}">Edit</button>
           <form method="post" action="/interfaces/{{ view.name }}/peers/{{ peer.encoded_key }}/delete" class="inline" data-confirm="Remove {{ peer.name }} from {{ view.name }}?">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <button class="linkish danger" type="submit">Remove</button>
@@ -104,8 +135,30 @@
       {% endfor %}
     </tbody>
   </table>
+  <p class="muted filter-empty" data-filter-empty hidden>No peers match that filter.</p>
   {% endif %}
 </section>
+
+<details class="panel raw">
+  <summary>Config backups</summary>
+  <p class="muted">A copy is stored under the state directory before each write. Restore copies the chosen backup over the live file, then <code>wg syncconf</code> if the interface is up. The current file is backed up first.</p>
+  {% if not view.backups %}
+  <p class="muted">No backups yet. They appear after the first change.</p>
+  {% else %}
+  <ul class="backup-list">
+    {% for backup in view.backups %}
+    <li>
+      <span class="mono">{{ backup.label }}</span>
+      <span class="muted">{{ backup.size }}</span>
+      <form method="post" action="/interfaces/{{ view.name }}/backups/{{ backup.stamp }}/restore" class="inline" data-confirm="Restore {{ view.name }}.conf from {{ backup.label }}? The current file is backed up first.">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="linkish" type="submit">Restore</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</details>
 
 <details class="panel raw">
   <summary>Inherited server config</summary>
@@ -115,7 +168,7 @@
 <div class="modal" id="add-peer" hidden>
   <div class="modal-card panel">
     <h2>Add peer</h2>
-    <p class="muted">A new keypair is generated on the server. Download the client file or QR after saving.</p>
+    <p class="muted">Generate a keypair on the server, or paste a public key you already have. Download the client file or QR after saving if the private key is stored here.</p>
     <form method="post" action="/interfaces/{{ view.name }}/peers" class="stack">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <label>
@@ -135,9 +188,39 @@
         <input type="text" name="notes" placeholder="optional">
       </label>
       <label class="check">
+        <input type="checkbox" name="existing_key" value="1" data-existing-key>
+        <span>Use an existing public key</span>
+      </label>
+      <div data-existing-fields hidden>
+        <label>
+          <span>Public key</span>
+          <input type="text" name="public_key" class="mono" autocomplete="off" spellcheck="false" placeholder="Base64 public key from the client">
+        </label>
+        <label>
+          <span>Preshared key <span class="muted">(optional)</span></span>
+          <input type="text" name="preshared_key" class="mono" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+      <label class="check">
         <input type="checkbox" name="use_psk" value="1" checked>
         <span>Generate a preshared key</span>
       </label>
+      <details class="overrides">
+        <summary>Client config overrides</summary>
+        <p class="muted">Leave blank to use the interface defaults. Split-tunnel a single peer here.</p>
+        <label>
+          <span>Client endpoint</span>
+          <input type="text" name="client_endpoint" placeholder="{{ view.settings.endpoint or view.suggested_endpoint }}">
+        </label>
+        <label>
+          <span>Client DNS</span>
+          <input type="text" name="client_dns" placeholder="{{ view.settings.client_dns }}">
+        </label>
+        <label>
+          <span>Client AllowedIPs</span>
+          <input type="text" name="client_allowed_ips" placeholder="{{ view.settings.client_allowed_ips }}">
+        </label>
+      </details>
       <div class="row">
         <button class="btn btn-primary" type="submit">Create peer</button>
         <button class="btn" type="button" data-close>Cancel</button>
@@ -167,6 +250,22 @@
         <span>Notes</span>
         <input type="text" name="notes" id="edit-notes">
       </label>
+      <details class="overrides">
+        <summary>Client config overrides</summary>
+        <p class="muted">Leave blank to use the interface defaults.</p>
+        <label>
+          <span>Client endpoint</span>
+          <input type="text" name="client_endpoint" id="edit-client-endpoint" placeholder="{{ view.settings.endpoint or view.suggested_endpoint }}">
+        </label>
+        <label>
+          <span>Client DNS</span>
+          <input type="text" name="client_dns" id="edit-client-dns" placeholder="{{ view.settings.client_dns }}">
+        </label>
+        <label>
+          <span>Client AllowedIPs</span>
+          <input type="text" name="client_allowed_ips" id="edit-client-allowed" placeholder="{{ view.settings.client_allowed_ips }}">
+        </label>
+      </details>
       <div class="row">
         <button class="btn btn-primary" type="submit">Save</button>
         <button class="btn" type="button" data-close>Cancel</button>
@@ -179,7 +278,10 @@
   <div class="modal-card panel qr-card">
     <h2>Scan on the phone</h2>
     <img id="qr-image" alt="WireGuard client QR code" width="280" height="280">
-    <button class="btn" type="button" data-close>Close</button>
+    <div class="row qr-actions">
+      <a class="btn btn-primary" id="qr-download" href="#">Download .conf</a>
+      <button class="btn" type="button" data-close>Close</button>
+    </div>
   </div>
 </div>
 {% endblock %}
