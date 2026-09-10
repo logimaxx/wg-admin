@@ -297,6 +297,51 @@ async def save_settings(
     return _redirect(f"/interfaces/{name}", "Client defaults saved.")
 
 
+@app.post("/interfaces/{name}/server")
+async def save_server(
+    request: Request,
+    name: str,
+    csrf: str = Form(...),
+    address: str = Form(""),
+    listen_port: str = Form(""),
+    mtu: str = Form(""),
+    dns: str = Form(""),
+    table: str = Form(""),
+    postup: str = Form(""),
+    postdown: str = Form(""),
+    preup: str = Form(""),
+    predown: str = Form(""),
+):
+    _check_csrf(request, csrf)
+    name = safe_name(name)
+    hooks_changed = _manager(request).save_server_interface(
+        name,
+        address,
+        listen_port,
+        mtu=mtu,
+        dns=dns,
+        table=table,
+        postup=postup,
+        postdown=postdown,
+        preup=preup,
+        predown=predown,
+    )
+    if hooks_changed:
+        return _redirect(
+            f"/interfaces/{name}",
+            "Server file saved. Address and PostUp/PostDown apply on the next wg-quick up — Restart if the interface is already live.",
+        )
+    return _redirect(f"/interfaces/{name}", "Server file saved. ListenPort was synced live when the interface is up.")
+
+
+@app.post("/interfaces/{name}/bounce")
+async def bounce_interface(request: Request, name: str, csrf: str = Form(...)):
+    _check_csrf(request, csrf)
+    name = safe_name(name)
+    _manager(request).bounce_interface(name)
+    return _redirect(f"/interfaces/{name}", f"Brought {name} down and up with wg-quick.")
+
+
 @app.post("/interfaces/{name}/peers")
 async def add_peer(
     request: Request,

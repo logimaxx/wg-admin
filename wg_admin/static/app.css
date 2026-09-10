@@ -239,7 +239,7 @@ html[data-theme="light"] .pill-demo {
 .stack { display: grid; gap: 12px; }
 label { display: grid; gap: 6px; font-size: 0.92rem; color: var(--muted); }
 label.check { display: flex; align-items: center; gap: 8px; }
-input[type="text"], input[type="password"], input[type="number"], input[type="search"] {
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], textarea {
   width: 100%;
   background: var(--bg);
   color: var(--text);
@@ -248,6 +248,12 @@ input[type="text"], input[type="password"], input[type="number"], input[type="se
   padding: 10px 12px;
   font: inherit;
 }
+textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+  line-height: 1.4;
+}
+textarea.mono { font-size: 0.85rem; }
 input:focus { outline: 2px solid var(--focus-ring); border-color: var(--focus-border); }
 
 .btn, .btn-small {
@@ -334,6 +340,7 @@ tr.is-disabled td { opacity: 0.62; }
 .overrides .stack, .overrides label { margin-top: 10px; }
 .overrides p { margin: 8px 0 0; }
 .qr-actions { justify-content: center; }
+.bounce-form { margin-top: 2px; }
 
 .auth { min-height: 60vh; display: grid; place-items: center; }
 .auth-card { width: min(460px, 100%); box-shadow: var(--shadow); }

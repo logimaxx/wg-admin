@@ -119,3 +119,37 @@ def test_inherit_comment_names(tmp_path: Path, monkeypatch):
     mgr.inherit_names()
     imported = mgr.config("wg0").peers[0]
     assert mgr.state.peer("wg0", imported.public_key).name == "imported"
+
+
+def test_save_server_interface_edits_hooks_in_place(tmp_path: Path, monkeypatch):
+    mgr = Manager(_settings(tmp_path, monkeypatch))
+    imported = mgr.config("wg0").peers[0].public_key
+    changed = mgr.save_server_interface(
+        "wg0",
+        "10.8.0.1/24, fd00:8::1/64",
+        "51821",
+        mtu="1420",
+        postup="iptables -A FORWARD -i %i -j ACCEPT\niptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+        postdown="iptables -D FORWARD -i %i -j ACCEPT",
+    )
+    assert changed is True
+    cfg = parse_wg_config(tmp_path / "wg" / "wg0.conf")
+    assert cfg.interface_value("PrivateKey")
+    assert cfg.addresses() == ["10.8.0.1/24", "fd00:8::1/64"]
+    assert cfg.listen_port() == "51821"
+    assert cfg.interface_value("MTU") == "1420"
+    assert cfg.interface_values("PostUp") == [
+        "iptables -A FORWARD -i %i -j ACCEPT",
+        "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+    ]
+    assert cfg.peer_by_public_key(imported) is not None
+    unchanged = mgr.save_server_interface(
+        "wg0",
+        "10.8.0.1/24, fd00:8::1/64",
+        "51822",
+        mtu="1420",
+        postup="iptables -A FORWARD -i %i -j ACCEPT\niptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+        postdown="iptables -D FORWARD -i %i -j ACCEPT",
+    )
+    assert unchanged is False
+    mgr.bounce_interface("wg0")

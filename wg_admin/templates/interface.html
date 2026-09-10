@@ -15,14 +15,63 @@
 </section>
 
 <section class="grid-2">
-  <div class="panel">
+  <div class="panel stack">
+  <form class="stack" method="post" action="/interfaces/{{ view.name }}/server">
     <h2>Server</h2>
+    <p class="muted">Edited in place in the <code>.conf</code>. wg-admin does not generate iptables or NAT. ListenPort syncs with <code>wg syncconf</code>; Address and PostUp/PostDown run when <code>wg-quick</code> brings the interface up.</p>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
     <dl class="facts facts-block">
       <div><dt>Public key</dt><dd class="mono wrap">{{ view.public_key or '—' }}
         {% if view.public_key %}<button class="linkish" type="button" data-copy="{{ view.public_key }}">Copy</button>{% endif %}
       </dd></div>
-      <div><dt>Addresses</dt><dd class="mono">{{ view.addresses }}</dd></div>
     </dl>
+    <label>
+      <span>Address</span>
+      <input type="text" name="address" class="mono" value="{{ view.addresses if view.addresses != '—' else '' }}" required>
+    </label>
+    <label>
+      <span>ListenPort</span>
+      <input type="text" name="listen_port" class="mono" value="{{ view.listen_port if view.listen_port != '—' else '' }}" placeholder="51820">
+    </label>
+    <label>
+      <span>MTU</span>
+      <input type="text" name="mtu" class="mono" value="{{ view.mtu }}" placeholder="optional">
+    </label>
+    <label>
+      <span>DNS <span class="muted">(server)</span></span>
+      <input type="text" name="dns" class="mono" value="{{ view.dns }}" placeholder="optional">
+    </label>
+    <label>
+      <span>PostUp</span>
+      <textarea name="postup" rows="3" class="mono" placeholder="One command per line. Left empty removes the keys.">{{ view.postup }}</textarea>
+    </label>
+    <label>
+      <span>PostDown</span>
+      <textarea name="postdown" rows="3" class="mono" placeholder="One command per line">{{ view.postdown }}</textarea>
+    </label>
+    <details class="overrides">
+      <summary>PreUp, PreDown, Table</summary>
+      <label>
+        <span>PreUp</span>
+        <textarea name="preup" rows="2" class="mono">{{ view.preup }}</textarea>
+      </label>
+      <label>
+        <span>PreDown</span>
+        <textarea name="predown" rows="2" class="mono">{{ view.predown }}</textarea>
+      </label>
+      <label>
+        <span>Table</span>
+        <input type="text" name="table" class="mono" value="{{ view.table }}" placeholder="optional">
+      </label>
+    </details>
+    <div class="row">
+      <button class="btn btn-primary" type="submit">Save server file</button>
+    </div>
+  </form>
+  <form method="post" action="/interfaces/{{ view.name }}/bounce" class="inline bounce-form" data-confirm="Bring {{ view.name }} down and up with wg-quick? Handshakes drop until clients reconnect. PostUp and PostDown will run.">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn" type="submit">Restart with wg-quick</button>
+  </form>
   </div>
   <form class="panel stack" method="post" action="/interfaces/{{ view.name }}/settings">
     <h2>Client defaults</h2>

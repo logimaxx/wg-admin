@@ -84,3 +84,20 @@ def test_disabled_peer_roundtrip_and_strip(tmp_path: Path):
     stripped = strip_runtime_config(again)
     assert again.peers[0].public_key not in stripped
     assert again.peers[1].public_key in stripped
+
+
+def test_set_interface_values_replaces_postup_keeps_private_key(tmp_path: Path):
+    path = tmp_path / "wg0.conf"
+    path.write_text(
+        FIXTURE.format(priv="A" * 43 + "=", pub1="B" * 43 + "=", pub2="C" * 43 + "=", psk="D" * 43 + "="),
+        encoding="utf-8",
+    )
+    cfg = parse_wg_config(path)
+    cfg.set_interface_values("PostUp", ["echo a", "echo b"])
+    cfg.set_interface_values("MTU", [])
+    rendered = render_wg_config(cfg)
+    assert "PrivateKey =" in rendered
+    assert "PostUp = echo a" in rendered
+    assert "PostUp = echo b" in rendered
+    assert "MTU" not in rendered
+    assert rendered.index("PrivateKey") < rendered.index("PostUp = echo a")

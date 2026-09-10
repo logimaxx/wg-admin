@@ -94,6 +94,27 @@ def test_setup_dashboard_add_peer(tmp_path, monkeypatch):
     assert "Filter by name" in iface.text
     assert "Config backups" in iface.text
     token = iface.text.split('name="csrf" value="')[1].split('"')[0]
+    saved = client.post(
+        "/interfaces/wg0/server",
+        data={
+            "csrf": token,
+            "address": "10.8.0.1/24",
+            "listen_port": "51820",
+            "postup": "echo hooks",
+            "postdown": "echo down",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    cfg = parse_wg_config(tmp_path / "wg" / "wg0.conf")
+    assert cfg.interface_value("PostUp") == "echo hooks"
+    assert cfg.interface_value("PostDown") == "echo down"
+    bounced = client.post(
+        "/interfaces/wg0/bounce",
+        data={"csrf": token},
+        follow_redirects=False,
+    )
+    assert bounced.status_code == 303
 
     existing = pubkey(genkey())
     imported = client.post(

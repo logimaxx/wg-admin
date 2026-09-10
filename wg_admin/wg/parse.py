@@ -70,6 +70,25 @@ class WgConfig:
     def listen_port(self) -> str:
         return self.interface_value("ListenPort")
 
+    def set_interface_values(self, key: str, values: list[str]) -> None:
+        needle = key.lower()
+        kept: list[tuple[str, str]] = []
+        insert_at: int | None = None
+        stored_key = key
+        for item, value in self.interface:
+            if item.lower() == needle:
+                if insert_at is None:
+                    insert_at = len(kept)
+                    stored_key = item
+                continue
+            kept.append((item, value))
+        cleaned = [part.strip() for part in values if part.strip()]
+        if insert_at is None:
+            insert_at = len(kept)
+        for offset, value in enumerate(cleaned):
+            kept.insert(insert_at + offset, (stored_key, value))
+        self.interface = kept
+
     def peer_by_public_key(self, public_key: str) -> WgPeer | None:
         for peer in self.peers:
             if peer.public_key == public_key:

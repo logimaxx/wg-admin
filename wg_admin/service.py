@@ -13,11 +13,29 @@ from wg_admin.state import AppState, InterfaceMeta, PeerMeta
 from wg_admin.wg.ips import next_ipv4
 from wg_admin.wg.keys import genkey, genpsk, pubkey, require_key
 from wg_admin.wg.parse import WgConfig, WgPeer, load_configs, parse_wg_config, render_wg_config
-from wg_admin.wg.runtime import Runtime, load_runtime, syncconf
+from wg_admin.wg.runtime import Runtime, bounce, load_runtime, syncconf
 from wg_admin.wg.write import apply_config
 
 
+QUICK_HOOK_KEYS = ("Address", "DNS", "MTU", "Table", "PreUp", "PostUp", "PreDown", "PostDown")
 BACKUP_STAMP = re.compile(r"^\d{8}-\d{6}$")
+
+
+def _split_lines(raw: str) -> list[str]:
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _split_csv(raw: str) -> list[str]:
+    parts: list[str] = []
+    for line in raw.replace(",", "\n").splitlines():
+        item = line.strip()
+        if item:
+            parts.append(item)
+    return parts
+
+
+def _quick_snapshot(config: WgConfig) -> dict[str, tuple[str, ...]]:
+    return {key: tuple(config.interface_values(key)) for key in QUICK_HOOK_KEYS}
 
 
 def safe_pubkey(private_key: str) -> str:
@@ -119,6 +137,13 @@ class InterfaceView:
     peers: list[PeerView]
     suggested_endpoint: str
     backups: list[BackupView]
+    mtu: str
+    dns: str
+    table: str
+    postup: str
+    postdown: str
+    preup: str
+    predown: str
 
 
 class Manager:
@@ -249,6 +274,13 @@ class Manager:
             peers=peers,
             suggested_endpoint=endpoint,
             backups=self.backups(name),
+            mtu=config.interface_value("MTU"),
+            dns=", ".join(config.interface_values("DNS")),
+            table=config.interface_value("Table"),
+            postup="\n".join(config.interface_values("PostUp")),
+            postdown="\n".join(config.interface_values("PostDown")),
+            preup="\n".join(config.interface_values("PreUp")),
+            predown="\n".join(config.interface_values("PreDown")),
         )
 
     def dashboard(self, host_hint: str = "") -> list[InterfaceView]:
@@ -389,6 +421,45 @@ class Manager:
         meta.client_dns = client_dns.strip() or "1.1.1.1"
         meta.client_allowed_ips = client_allowed_ips.strip() or "0.0.0.0/0, ::/0"
         self.state.save()
+
+    def save_server_interface(
+        self,
+        name: str,
+        address: str,
+        listen_port: str,
+        mtu: str = "",
+        dns: str = "",
+        table: str = "",
+        postup: str = "",
+        postdown: str = "",
+        preup: str = "",
+        predown: str = "",
+    ) -> bool:
+        config = self.config(name)
+        addresses = _split_csv(address)
+        if not addresses:
+            raise ValueError("Interface Address is required")
+        before = _quick_snapshot(config)
+        config.set_interface_values("Address", addresses)
+        config.set_interface_values("ListenPort", [listen_port])
+        config.set_interface_values("MTU", [mtu])
+        config.set_interface_values("DNS", _split_csv(dns))
+        config.set_interface_values("Table", [table])
+        config.set_interface_values("PostUp", _split_lines(postup))
+        config.set_interface_values("PostDown", _split_lines(postdown))
+        config.set_interface_values("PreUp", _split_lines(preup))
+        config.set_interface_values("PreDown", _split_lines(predown))
+        if not config.private_key():
+            raise ValueError("Refusing to save an interface without PrivateKey")
+        changed = _quick_snapshot(config) != before
+        self.apply(config)
+        return changed
+
+    def bounce_interface(self, name: str) -> None:
+        self.config(name)
+        if self.settings.demo:
+            return
+        bounce(name)
 
     def backups(self, name: str) -> list[BackupView]:
         prefix = f"{name}.conf."

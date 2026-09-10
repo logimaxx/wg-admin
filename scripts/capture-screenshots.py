@@ -190,7 +190,10 @@ def _capture() -> None:
         page.fill('input[name="endpoint"]', "vpn.example.com:51820")
         page.fill('input[name="client_dns"]', "10.8.0.1")
         page.fill('input[name="client_allowed_ips"]', "0.0.0.0/0, ::/0")
-        _shot(page, "interface.png", banners=True)
+        page.evaluate("window.scrollTo(0, 0)")
+        page.set_viewport_size({"width": 1280, "height": 1280})
+        _shot(page, "interface.png", full_page=False, banners=True)
+        page.set_viewport_size({"width": 1280, "height": 800})
 
         page.set_viewport_size({"width": 1280, "height": 920})
         page.click('button[data-open="add-peer"]')

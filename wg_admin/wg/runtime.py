@@ -119,3 +119,13 @@ def syncconf(name: str, stripped: str) -> None:
         check=True,
         capture_output=True,
     )
+
+
+def bounce(name: str) -> None:
+    if shutil.which("wg-quick") is None:
+        raise RuntimeError("wg-quick is not installed; the interface was not restarted")
+    subprocess.run(["wg-quick", "down", name], capture_output=True, text=True)
+    up = subprocess.run(["wg-quick", "up", name], capture_output=True, text=True)
+    if up.returncode != 0:
+        detail = (up.stderr or up.stdout or "wg-quick up failed").strip()
+        raise RuntimeError(detail)

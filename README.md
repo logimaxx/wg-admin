@@ -2,7 +2,7 @@
 
 A focused web UI for a WireGuard host that is already running. It reads the files already in `/etc/wireguard`, lets you add and edit peers, and applies changes with `wg syncconf` so the interface does not bounce.
 
-wg-admin does not install WireGuard, replace `wg-quick`, or rewrite your `PostUp` / NAT lines. It sits on top of the configuration you already have.
+wg-admin does not install WireGuard, replace `wg-quick`, or generate `PostUp` / NAT for you. It sits on top of the configuration you already have. You can edit those interface lines in place; apply for peers still uses `wg syncconf` so the interface does not bounce.
 
 ![Peer list for wg0 with live handshake and transfer](docs/screenshots/interface.png)
 
@@ -17,7 +17,8 @@ Install it on a host that already has a working VPN. Existing `[Interface]` keys
 ## Features
 
 - **Inherits live configs** — every `*.conf` in `/etc/wireguard` is listed and managed in place
-- **Non-disruptive apply** — writes the file, then `wg syncconf` when the interface is up (no bounce)
+- **Non-disruptive apply** — peer changes write the file, then `wg syncconf` when the interface is up (no bounce)
+- **Server file in place** — edit Address, ListenPort, MTU, and PostUp/PostDown without inventing iptables. Hooks apply on the next `wg-quick` up, or Restart from the UI
 - **Peer lifecycle** — add, rename, edit, disable without deleting, rotate keys, and remove peers
 - **Existing public keys** — paste a key from a client that already has one, instead of generating a new pair
 - **Client onboarding** — downloadable `.conf` and QR code right after create or rotate; per-peer DNS / AllowedIPs / endpoint overrides
@@ -69,9 +70,9 @@ Keep the service on localhost. Put a reverse proxy with TLS in front if anyone e
 ## What it inherits
 
 
-| From the server `.conf`                                                                                     | Kept as-is               |
+| From the server `.conf`                                                                                     | In wg-admin              |
 | ----------------------------------------------------------------------------------------------------------- | ------------------------ |
-| `[Interface]` keys (`Address`, `ListenPort`, `PrivateKey`, `PostUp` / `PostDown`, `MTU`, `Table`, `DNS`, …) | Yes                      |
+| `[Interface]` keys (`Address`, `ListenPort`, `PrivateKey`, `PostUp` / `PostDown`, `MTU`, `Table`, `DNS`, …) | Kept; editable in the UI |
 | Existing `[Peer]` public keys, AllowedIPs, PSK, keepalive, endpoint                                         | Yes                      |
 | Comment above a peer (`# Alice` or `# Name = Alice`)                                                        | Used as the display name |
 
@@ -87,7 +88,8 @@ Disabled peers are commented out in the server file (`# wg-admin:disabled`) so `
 - Open an interface to see peers, last handshake, and transfer. Filter or sort the list when it grows.
 - **Add peer** generates keys (or takes an existing public key), picks the next free IPv4, and writes the server file. The QR / `.conf` opens immediately when the private key is stored here.
 - **Disable** a peer to drop it from the live interface without deleting the block. Restore a backup if a write needs undoing.
-- Save / apply uses `wg syncconf` when the interface is up. If it is down, only the file is updated. Change the admin password from **Password** in the header.
+- Edit **Address / ListenPort / PostUp / PostDown** in the Server panel. Those lines stay yours — wg-admin does not generate NAT. ListenPort syncs live; hooks apply on the next `wg-quick` up, or **Restart with wg-quick**.
+- Peer apply uses `wg syncconf` when the interface is up. Change the admin password from **Password** in the header.
 
 
 

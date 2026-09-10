@@ -10,7 +10,9 @@ Every `*.conf` on the host is listed in place. Status comes from `wg` when the i
 
 ## Peers
 
-Open an interface to see peers, last handshake, and transfer. Filter or sort the list. Disable a peer to keep it in the file without leaving it live.
+Open an interface to see peers, last handshake, and transfer. Filter or sort the list. Disable a peer to keep it in the file without leaving it live. Address and PostUp/PostDown are editable on the same page.
+
+![Peer list for wg0 with live handshake and transfer](screenshots/interface.png)
 
 ![Peer list for wg0 with live handshake and transfer](screenshots/interface.png)
 
